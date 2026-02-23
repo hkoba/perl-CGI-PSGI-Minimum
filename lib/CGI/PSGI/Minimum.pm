@@ -10,10 +10,16 @@ use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 use Plack::Request ();
 use Plack::Response ();
 
+use MOP4Import::PSGIEnv;
+
+use Tie::IxHash;
 use CGI::PSGI::Minimum::IOHandle -as_base
   , [fields =>
      qw(
        env
+       _request
+       _parameters
+       _query_parameters
      )
    ]
   ;
@@ -32,7 +38,84 @@ sub new {
   $class->from(env => $env);
 }
 
+sub request {
+  my MY $prop = (my $glob = shift)->prop;
+  $prop->{_request} //= do {
+    Plack::Request->new($prop->{env});
+  }
+}
+
 #========================================
+
+sub parameters {
+  my MY $prop = (my $glob = shift)->prop;
+
+  $prop->{_parameters} //= do {
+    my Env $env = $prop->{env};
+    if (not defined $env->{CONTENT_TYPE}
+        and $env->{REQUEST_METHOD} eq 'POST') {
+      $env->{CONTENT_TYPE} = 'application/x-www-form-urlencoded';
+    }
+
+    tie my %params, 'Tie::IxHash', %{$glob->query_parameters};
+
+    my $request = $glob->request;
+    my @kvlist = (
+      @{$request->_body_parameters}
+    );
+    while (my ($k, $v) = splice @kvlist, 0, 2) {
+      push @{$params{$k}}, $v;
+    }
+    \%params;
+  }
+}
+
+sub query_parameters {
+  my MY $prop = (my $glob = shift)->prop;
+
+  $prop->{_query_parameters} //= do {
+    tie my %params, 'Tie::IxHash';
+
+    my Env $env = $prop->{env};
+
+    if ($env->{QUERY_STRING} =~ /[&=;]/) {
+      my $request = $glob->request;
+      my @kvlist = (
+        @{$request->_query_parameters},
+      );
+      while (my ($k, $v) = splice @kvlist, 0, 2) {
+        push @{$params{$k}}, $v;
+      }
+    }
+    \%params;
+  }
+}
+
+#========================================
+sub param {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my $parameters = $glob->parameters;
+
+  if (not @_) {
+    # To preserve original key order.
+    keys %$parameters;
+  }
+  elsif (@_ == 1) {
+    # get
+    my $vals = $parameters->{$_[0]};
+    if (wantarray) {
+      $vals ? @$vals : ();
+    } else {
+      $vals->[0];
+    }
+  }
+  else {
+    # set
+    $parameters->{$_[0]} = [@_[1..$#_]];
+  }
+}
+
 #========================================
 #========================================
 {
