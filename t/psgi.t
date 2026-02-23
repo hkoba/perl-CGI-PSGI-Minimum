@@ -1,7 +1,14 @@
+#!/usr/bin/env perl
+# Below is stolen with many modifications from CGI-PSGI/t/psgi.t
+
 # copy of request.t
 
 use strict;
 use warnings;
+
+use File::Basename ();
+use FindBin;
+use lib File::Basename::dirname($FindBin::Bin) . "/lib";
 
 use Test::More;
 
@@ -9,7 +16,7 @@ eval "use 5.008";
 plan skip_all => "$@" if $@;
 plan tests => 36;
 
-use CGI::PSGI ();
+use CGI::PSGI::Minimum ();
 use Config;
 
 my $loaded = 1;
@@ -31,7 +38,7 @@ $env->{SERVER_NAME}     = 'the.good.ship.lollypop.com';
 $env->{REQUEST_URI}     = "$env->{SCRIPT_NAME}$env->{PATH_INFO}?$env->{QUERY_STRING}";
 $env->{HTTP_LOVE}       = 'true';
 
-my $q = CGI::PSGI->new($env);
+my $q = CGI::PSGI::Minimum->new(+{%$env});
 ok $q,"CGI::new()";
 is $q->request_method => 'GET',"CGI::request_method()";
 is $q->query_string => 'game=chess;game=checkers;weather=dull',"CGI::query_string()";
@@ -40,15 +47,19 @@ is join(' ',sort $q->param()), 'game weather',"CGI::param()";
 is $q->param('game'), 'chess',"CGI::param()";
 is $q->param('weather'), 'dull',"CGI::param()";
 is join(' ',$q->param('game')), 'chess checkers',"CGI::param()";
-ok $q->param(-name=>'foo',-value=>'bar'),'CGI::param() put';
-is $q->param(-name=>'foo'), 'bar','CGI::param() get';
+
+# ok $q->param(-name=>'foo',-value=>'bar'),'CGI::param() put';
+# is $q->param(-name=>'foo'), 'bar','CGI::param() get';
+ok $q->param('foo','bar'),'CGI::param() put';
+is $q->param('foo'), 'bar','CGI::param() get';
+
 is $q->query_string, 'game=chess;game=checkers;weather=dull;foo=bar',"CGI::query_string() redux";
 is $q->http('love'), 'true',"CGI::http()";
 is $q->script_name, '/cgi-bin/foo.cgi',"CGI::script_name()";
 is $q->url, 'http://the.good.ship.lollypop.com:8080/cgi-bin/foo.cgi',"CGI::url()";
 is $q->self_url,
      'http://the.good.ship.lollypop.com:8080/cgi-bin/foo.cgi/somewhere/else?game=chess;game=checkers;weather=dull;foo=bar',
-     "CGI::url()";
+     "CGI::self_url()";
 is $q->url(-absolute=>1), '/cgi-bin/foo.cgi','CGI::url(-absolute=>1)';
 is $q->url(-relative=>1), 'foo.cgi','CGI::url(-relative=>1)';
 is $q->url(-relative=>1,-path=>1), 'foo.cgi/somewhere/else','CGI::url(-relative=>1,-path=>1)';
@@ -60,7 +71,7 @@ ok !$q->param('foo'),'CGI::delete()';
 
 $q->_reset_globals;
 $env->{QUERY_STRING}='mary+had+a+little+lamb';
-ok $q=CGI::PSGI->new($env),"CGI::new() redux";
+ok $q=CGI::PSGI::Minimum->new(+{%$env}),"CGI::new() redux";
 is join(' ',$q->keywords), 'mary had a little lamb','CGI::keywords';
 is join(' ',$q->param('keywords')), 'mary had a little lamb','CGI::keywords';
 
@@ -76,7 +87,7 @@ $q->_reset_globals;
   use IO::Handle;
   $env->{'psgi.input'} = $input;
 
-  ok $q=CGI::PSGI->new($env),"CGI::new() from POST";
+  ok $q=CGI::PSGI::Minimum->new(+{%$env}),"CGI::new() from POST";
   is $q->param('weather'), 'nice',"CGI::param() from POST";
   is $q->url_param('big_balls'), 'basketball',"CGI::url_param()";
 }
@@ -85,16 +96,16 @@ $q->_reset_globals;
 {
     local $env->{QUERY_STRING} = 'game=chess&game=checkers&weather=dull';
 
-    my $q = CGI::PSGI->new($env);
+    my $q = CGI::PSGI::Minimum->new(+{%$env});
     # params present, param and url_param should return true
     ok $q->param,     'param() is true if parameters';
     ok $q->url_param, 'url_param() is true if parameters';
 
     $env->{QUERY_STRING} = '';
 
-    $q = CGI::PSGI->new($env);
+    $q = CGI::PSGI::Minimum->new(+{%$env});
     ok !$q->param,     'param() is false if no parameters';
-    if (eval { CGI->VERSION(3.46) }) {
+    if (1 or eval { CGI->VERSION(3.46) }) {
       ok !$q->url_param, 'url_param() is false if no parameters';
     } else {
       # CGI.pm before 3.46 had an inconsistency with url_param and an empty
@@ -104,7 +115,7 @@ $q->_reset_globals;
     }
 
     $env->{QUERY_STRING} = 'tiger dragon';
-    $q = CGI::PSGI->new($env);
+    $q = CGI::PSGI::Minimum->new(+{%$env});
 
     is_deeply [$q->$_] => [ 'keywords' ], "$_ with QS='$env->{QUERY_STRING}'" 
         for qw/ param url_param /;
@@ -114,7 +125,7 @@ $q->_reset_globals;
 }
 
 {
-    my $q = CGI::PSGI->new($env);
+    my $q = CGI::PSGI::Minimum->new(+{%$env});
     $q->charset('utf-8');
     my($status, $headers) = $q->psgi_header(-status => 302, -content_type => 'text/plain');
 
