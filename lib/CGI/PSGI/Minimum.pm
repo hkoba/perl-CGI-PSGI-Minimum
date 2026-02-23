@@ -7,12 +7,18 @@ our $VERSION = "0.01";
 
 use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 
+#========================================
+
+use URI::Escape ();
 use Plack::Request ();
 use Plack::Response ();
 
 use MOP4Import::PSGIEnv;
 
 use Tie::IxHash;
+
+our $USE_PARAM_SEMICOLONS = 1;
+
 use CGI::PSGI::Minimum::IOHandle -as_base
   , [fields =>
      qw(
@@ -87,11 +93,51 @@ sub query_parameters {
         push @{$params{$k}}, $v;
       }
     }
+    elsif ($env->{QUERY_STRING} ne '') {
+      my $tosplit = URI::Escape::uri_unescape($env->{QUERY_STRING});
+      $tosplit =~ tr/+/ /;
+      my @keywords = split /\s+/, $tosplit;
+      $params{keywords} = \@keywords;
+    }
+
     \%params;
   }
 }
 
 #========================================
+
+sub query_string {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my $parameters = $glob->parameters;
+
+  my $sep = $USE_PARAM_SEMICOLONS ? ";" : "&";
+
+  join $sep, map {
+    my $key = $_;
+    my $ekey = URI::Escape::uri_escape($key);
+    map {
+      join "=", $ekey, URI::Escape::uri_escape($_);
+    } @{$parameters->{$key}}
+  } keys %$parameters
+}
+
+sub url_param {
+  my MY $prop = (my $glob = shift)->prop;
+  my ($name) = @_;
+
+  my $parameters = $glob->query_parameters;
+
+  if (not defined $name) {
+    keys %$parameters
+  }
+  else {
+    my $vals = $parameters->{$name};
+    return () unless $vals;
+    wantarray ? @$vals : $vals->[0];
+  }
+}
+
 sub param {
   my MY $prop = (my $glob = shift)->prop;
 
@@ -114,6 +160,23 @@ sub param {
     # set
     $parameters->{$_[0]} = [@_[1..$#_]];
   }
+}
+
+sub delete {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my $parameters = $glob->parameters;
+
+  CORE::delete $parameters->{$_[0]};
+}
+
+sub keywords {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my $keywords = $glob->parameters->{keywords}
+    or return;
+
+  @$keywords;
 }
 
 #========================================
