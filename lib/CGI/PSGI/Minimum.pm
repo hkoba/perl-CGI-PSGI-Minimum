@@ -20,6 +20,8 @@ use Tie::IxHash;
 
 our $USE_PARAM_SEMICOLONS = 1;
 
+#========================================
+
 use CGI::PSGI::Minimum::IOHandle -as_base
   , [fields =>
      qw(
@@ -28,6 +30,9 @@ use CGI::PSGI::Minimum::IOHandle -as_base
        _request
        _parameters
        _query_parameters
+
+       _status
+       _response_headers
      )
    ]
   ;
@@ -47,6 +52,15 @@ use MOP4Import::Types
       -query
     )]
   ],
+  Header_Opts => [
+    [fields => qw(
+      -status
+      -type
+      -content_type
+      -expires
+      -cookie
+      -charset
+    )]
   ],
   ;
 
@@ -66,6 +80,14 @@ sub request {
   $prop->{_request} //= do {
     Plack::Request->new($prop->{env});
   }
+}
+
+sub response {
+  my MY $prop = (my $glob = shift)->prop;
+  Plack::Response->new(
+    $prop->{_status} // 200,
+    $prop->{_response_headers} // [],
+  );
 }
 
 #========================================
@@ -266,6 +288,49 @@ sub charset {
   my ($charset) = @_;
   $prop->{charset} = $charset if defined $charset;
   $prop->{charset};
+}
+
+#========================================
+
+sub header {
+  my MY $prop = (my $glob = shift)->prop;
+
+  ($prop->{_status}, $prop->{_response_headers}) = $glob->psgi_header(@_);
+
+  "";
+}
+
+sub psgi_header {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my Header_Opts $opts = $glob->lock_keys_as(Header_Opts, +{@_});
+
+  my $type = ($opts->{-type} // $opts->{-content_type}) || 'text/html';
+
+  my $charset = do {
+    if (defined $opts->{-charset}) {
+      $glob->charset($opts->{-charset})
+    }
+    elsif ($type =~ m{^text/}) {
+      $glob->charset
+    }
+    else {
+      ''
+    }
+  };
+
+  if ($type ne '' and $type !~ /\bcharset\b/ and $charset ne '') {
+    $type .= "; charset=$charset";
+  }
+
+  my @header;
+
+  push @header, "Content-Type", $type if $type ne '';
+
+  $opts->{-status} ||= "200";
+  $opts->{-status} =~ s/\D*$//;
+
+  return $opts->{-status}, \@header;
 }
 
 #========================================
