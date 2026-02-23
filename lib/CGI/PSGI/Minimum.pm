@@ -1,11 +1,58 @@
 package CGI::PSGI::Minimum;
-use 5.008001;
+use 5.010;
 use strict;
 use warnings;
 
 our $VERSION = "0.01";
 
+use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 
+use Plack::Request ();
+use Plack::Response ();
+
+use CGI::PSGI::Minimum::IOHandle -as_base
+  , [fields =>
+     qw(
+       env
+     )
+   ]
+  ;
+
+use MOP4Import::Util qw(
+);
+
+#========================================
+
+sub _reset_globals {
+  warn "_reset_globals is called!" if WARN_CGI_GLOBAL_CALLS;
+}
+
+sub new {
+  my ($class, $env) = @_;
+  $class->from(env => $env);
+}
+
+#========================================
+#========================================
+#========================================
+{
+  for my $method (qw(
+    request_method
+    script_name
+    path_info
+    request_uri
+    server_name
+    server_port
+    server_protocol
+    content_type
+  )) {
+    my $key = uc($method);
+    my $sym = MOP4Import::Util::globref(MY, $method);
+    *$sym = sub {
+      shift->prop->{env}->{$key}
+    }
+  }
+}
 
 1;
 __END__
