@@ -10,6 +10,7 @@ use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 #========================================
 
 use URI::Escape ();
+use URI;
 use Plack::Request ();
 use Plack::Response ();
 
@@ -23,6 +24,7 @@ use CGI::PSGI::Minimum::IOHandle -as_base
   , [fields =>
      qw(
        env
+       charset
        _request
        _parameters
        _query_parameters
@@ -31,7 +33,22 @@ use CGI::PSGI::Minimum::IOHandle -as_base
   ;
 
 use MOP4Import::Util qw(
+  lock_keys_as
 );
+
+use MOP4Import::Types
+  URL_Opts => [
+    [fields => qw(
+      -full
+      -absolute
+      -relative
+      -path
+      -path_info
+      -query
+    )]
+  ],
+  ],
+  ;
 
 #========================================
 
@@ -180,6 +197,77 @@ sub keywords {
 }
 
 #========================================
+
+sub self_url {
+  shift->url(-full => 1, -query => 1, -path => 1);
+}
+
+sub url {
+  my MY $prop = (my $glob = shift)->prop;
+
+  my URL_Opts $opts = $glob->lock_keys_as(URL_Opts, +{@_});
+
+  my Env $env = $prop->{env};
+
+  my $uri = $env->{SCRIPT_NAME} // '';
+
+  my $URL;
+  if ($opts->{-absolute}) {
+    $URL = $uri
+  }
+  elsif ($opts->{-relative}) {
+    ($URL) = $uri =~ m!([^/]+)$!
+  }
+  else {
+    # full
+    $URL = $glob->protocol . "://";
+    $URL .= $env->{SERVER_NAME};
+
+    my $std_port = $env->{HTTPS} ? 443 : 80;
+    $URL .= ":$env->{SERVER_PORT}"
+      if $env->{SERVER_PORT} != $std_port;
+
+    $URL .= $uri;
+  }
+
+  if (($opts->{-path} // $opts->{-path_info}) and $env->{PATH_INFO}) {
+    $URL .= $env->{PATH_INFO}
+  }
+  if ($opts->{-query} and (my $qs = $glob->query_string) ne '') {
+    $URL .= "?$qs";
+  }
+
+  URI->new($URL)->canonical->as_string;
+}
+
+sub http {
+  my MY $prop = (my $glob = shift)->prop;
+  if (defined $_[0]) {
+    my $key = "HTTP_".uc($_[0]);
+    $prop->{env}{$key};
+  } else {
+    grep { /^HTTP (?:_ | $ )/x } keys %{$prop->{env}}
+  }
+}
+
+sub protocol {
+  my MY $prop = (my $glob = shift)->prop;
+  my Env $env = $prop->{env};
+  if ($env->{HTTPS} || $env->{SERVER_PORT} == 443) {
+    'https'
+  } else {
+    my ($protocol, $version) = split m{/}, $env->{SERVER_PROTOCOL};
+    lc($protocol);
+  }
+}
+
+sub charset {
+  my MY $prop = (my $glob = shift)->prop;
+  my ($charset) = @_;
+  $prop->{charset} = $charset if defined $charset;
+  $prop->{charset};
+}
+
 #========================================
 {
   for my $method (qw(
