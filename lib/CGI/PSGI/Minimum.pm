@@ -14,7 +14,9 @@ use URI;
 use Plack::Request ();
 use Plack::Response ();
 
-use MOP4Import::PSGIEnv;
+use MOP4Import::PSGIEnv qw(
+  HTTP_X_FORWARDED_HOST
+);
 
 use Tie::IxHash;
 
@@ -283,6 +285,29 @@ sub protocol {
   }
 }
 
+sub virtual_host {
+  my MY $prop = (my $glob = shift)->prop;
+  my Env $env = $prop->{env};
+  my $vh = $env->{HTTP_X_FORWARDED_HOST}
+    || $env->{HTTP_HOST}
+    || $env->{SERVER_NAME};
+  $vh =~ s/:\d+$//;
+  $vh;
+}
+
+sub virtual_port {
+  my MY $prop = (my $glob = shift)->prop;
+  my Env $env = $prop->{env};
+  my $vh = $env->{HTTP_X_FORWARDED_HOST}
+    || $env->{HTTP_HOST}
+    || $env->{SERVER_NAME};
+  if ($vh) {
+    ($vh =~ / :(\d+)$ /x )[0] || ($glob->protocol eq 'https' ? 443 : 80);
+  } else {
+    $glob->server_port
+  }
+}
+
 sub charset {
   my MY $prop = (my $glob = shift)->prop;
   my ($charset) = @_;
@@ -351,6 +376,18 @@ sub psgi_header {
       shift->prop->{env}->{$key}
     }
   }
+
+  for my $method (qw(
+    user_agent
+    referer
+  )) {
+    my $key = 'HTTP_' . uc($method);
+    my $sym = MOP4Import::Util::globref(MY, $method);
+    *$sym = sub {
+      shift->prop->{env}->{$key}
+    }
+  }
+
 }
 
 1;
