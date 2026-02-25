@@ -1,6 +1,15 @@
+#!/usr/bin/env perl
+# Below is stolen with many modifications from CGI-PSGI/t/http.t
+
+use strict;
+use warnings;
+
+use File::Basename ();
+use FindBin;
+use lib File::Basename::dirname($FindBin::Bin) . "/lib";
+
 use Test::More;
-use CGI::PSGI;
-use CGI;
+use CGI::PSGI::Minimum ();
 
 my $env;
 $env->{REQUEST_METHOD}  = 'GET';
@@ -16,7 +25,7 @@ $env->{HTTP_USER_AGENT} = 'Mozilla/5.1';
 $env->{HTTP_REFERER}    = 'http://localhost/foo';
 
 {
-    my $q = CGI::PSGI->new($env);
+    my $q = CGI::PSGI::Minimum->new(+{%$env});
     is $q->server_name, 'server.example.com';
     is $q->virtual_host, 'virtual.example.com';
     is $q->virtual_port, 81;
