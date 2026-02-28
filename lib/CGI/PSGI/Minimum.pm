@@ -92,6 +92,13 @@ sub response {
   );
 }
 
+sub psgi_tuple {
+  my MY $prop = (my $glob = shift)->prop;
+  [$prop->{_status}
+   , $prop->{_response_headers} // []
+   , [$glob->buffer]];
+}
+
 #========================================
 
 sub parameters {
@@ -342,7 +349,7 @@ sub psgi_header {
     else {
       ''
     }
-  };
+  } // '';
 
   if ($type ne '' and $type !~ /\bcharset\b/ and $charset ne '') {
     $type .= "; charset=$charset";

@@ -2,7 +2,7 @@ package CGI::PSGI::Minimum::IOHandle;
 use strict;
 use warnings;
 
-use IO::Handle ();
+use parent 'IO::Handle';
 
 use MOP4Import::Declare -as_base
   , [fields =>
@@ -59,5 +59,10 @@ sub build_fh_for {
   $_[0];
 }
 
+sub buffer {
+  my PROP $prop = (my $glob = shift)->prop;
+  $glob->flush;
+  $ {$prop->{_buffer}};
+}
 
 1;
