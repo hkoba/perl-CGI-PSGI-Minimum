@@ -64,6 +64,14 @@ use MOP4Import::Types
       -charset
     )]
   ],
+  Redirect_Opts => [
+    [fields => qw(
+      -uri
+      -status
+      -type -Type
+      -Location
+    )]
+  ]
   ;
 
 #========================================
@@ -74,7 +82,10 @@ sub _reset_globals {
 
 sub new {
   my ($class, $env) = @_;
-  $class->from(env => $env);
+  my $glob = $class->from(env => $env);
+  my MY $prop = $glob->prop;
+  $prop->{charset} = 'ISO-8859-1';
+  $glob;
 }
 
 sub request {
@@ -335,9 +346,22 @@ sub header {
 sub psgi_header {
   my MY $prop = (my $glob = shift)->prop;
 
-  my Header_Opts $opts = $glob->lock_keys_as(Header_Opts, +{@_});
+  (my Header_Opts $opts, my @other_headers) = do {
+    my @args = @_;
+    my (%opts, @rest);
+    while (my ($key, $value) = splice @args, 0, 2) {
+      if ($key =~ /^-/) {
+        $opts{$key} = $value;
+      } else {
+        push @rest, $key, $value;
+      }
+    }
+    ($glob->lock_keys_as(Header_Opts, \%opts)
+     , @rest
+   );
+  };
 
-  my $type = ($opts->{-type} // $opts->{-content_type}) || 'text/html';
+  my $type = ($opts->{-type} // $opts->{-content_type}) // 'text/html';
 
   my $charset = do {
     if (defined $opts->{-charset}) {
@@ -355,14 +379,46 @@ sub psgi_header {
     $type .= "; charset=$charset";
   }
 
-  my @header;
+  my @header = @other_headers;
 
   push @header, "Content-Type", $type if $type ne '';
 
   $opts->{-status} ||= "200";
   $opts->{-status} =~ s/\D*$//;
 
-  return $opts->{-status}, \@header;
+  $prop->{_status} = $opts->{-status};
+  $prop->{_response_headers} = \@header;
+
+  return $prop->{_status}, $prop->{_response_headers};
+}
+
+#========================================
+
+sub psgi_redirect {
+  my MY $prop = (my $glob = shift)->prop;
+  $glob->redirect(@_);
+
+  ($prop->{_status}, $prop->{_response_headers});
+}
+
+sub redirect {
+  my MY $prop = (my $glob = shift)->prop;
+  my Redirect_Opts $opts = do {
+    if (@_ == 1) {
+      +{-uri => $_[0]}
+    } else {
+      $glob->lock_keys_as(Redirect_Opts, +{@_})
+    }
+  };
+
+  my $uri = $opts->{-uri} || $opts->{-Location};
+
+  $glob->psgi_header(
+    -status => $opts->{-status} || 302,
+    -content_type => ($opts->{-type} || $opts->{-Type}) // '',
+    Location => $uri,
+  );
+  "";
 }
 
 #========================================
