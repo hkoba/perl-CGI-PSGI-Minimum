@@ -1,5 +1,13 @@
+#!/usr/bin/env perl
+# Below is stolen with many modifications from CGI-PSGI/t/redirect.t
+
 use strict;
 use warnings;
+
+use File::Basename ();
+use FindBin;
+use lib File::Basename::dirname($FindBin::Bin) . "/lib";
+
 use Test::More;
 
 eval "use 5.008";
@@ -7,7 +15,7 @@ plan skip_all => "$@" if $@;
 plan tests => 6;
 #plan 'no_plan';
 
-use CGI::PSGI ();
+use CGI::PSGI::Minimum ();
 
 # Set up a CGI environment
 my $env;
@@ -22,7 +30,7 @@ $env->{SERVER_NAME}     = 'the.good.ship.lollypop.com';
 $env->{REQUEST_URI}     = "$env->{SCRIPT_NAME}$env->{PATH_INFO}?$env->{QUERY_STRING}";
 $env->{HTTP_LOVE}       = 'true';
 
-my $q = CGI::PSGI->new($env);
+my $q = CGI::PSGI::Minimum->new($env);
 
 # These first tree tests are ported from CGI.pm's 'function.t'
 {
