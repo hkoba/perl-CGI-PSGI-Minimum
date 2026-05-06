@@ -42,6 +42,14 @@ use CGI::PSGI::Minimum::IOHandle -as_base
    ]
   ;
 
+#----------------------------------------
+use overload qw(
+  %{}  prop
+  bool as_bool
+);
+sub as_bool { 1 }
+#----------------------------------------
+
 use MOP4Import::Util qw(
   lock_keys_as
 );
