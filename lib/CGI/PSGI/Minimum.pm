@@ -24,11 +24,11 @@ our $USE_PARAM_SEMICOLONS = 1;
 
 #========================================
 
-use CGI::PSGI::Minimum::IOHandle -as_base
+use MOP4Import::Base::IOHandle -as_base
   , [fields =>
+     [charset => default => "ISO-8859-1", no_getter => 1],
      qw(
        env
-       charset
        _request
        _parameters
        _query_parameters
@@ -41,14 +41,6 @@ use CGI::PSGI::Minimum::IOHandle -as_base
      )
    ]
   ;
-
-#----------------------------------------
-use overload qw(
-  %{}  prop
-  bool as_bool
-);
-sub as_bool { 1 }
-#----------------------------------------
 
 use MOP4Import::Util qw(
   lock_keys_as
@@ -107,10 +99,7 @@ sub _reset_globals {
 
 sub new {
   my ($class, $env) = @_;
-  my $glob = $class->from(env => $env);
-  my MY $prop = $glob->prop;
-  $prop->{charset} = 'ISO-8859-1';
-  $glob;
+  $class->SUPER::new(env => $env);
 }
 
 sub request {
@@ -132,7 +121,7 @@ sub psgi_tuple {
   my MY $prop = (my $glob = shift)->prop;
   [$prop->{_status}
    , $prop->{_response_headers} // []
-   , [$glob->buffer]];
+   , [$glob->as_bytes]];
 }
 
 #========================================
