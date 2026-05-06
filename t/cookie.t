@@ -1,8 +1,14 @@
-#!/usr/local/bin/perl -w
+#!/usr/bin/env perl
+
+# Below is stolen with many modifications from CGI-PSGI/t/cookie.t
 
 use strict;
 
-use Test::More tests => 28;
+use File::Basename ();
+use FindBin;
+use lib File::Basename::dirname($FindBin::Bin) . "/lib";
+
+use Test::More;
 use CGI::Util qw(escape unescape);
 use POSIX qw(strftime);
 
@@ -10,8 +16,7 @@ use POSIX qw(strftime);
 # make sure module loaded
 #-----------------------------------------------------------------------------
 
-BEGIN {use_ok('CGI::Cookie');}
-use CGI::PSGI;
+use CGI::PSGI::Minimum ();
 
 my @test_cookie = (
 		   'foo=123; bar=qwerty; baz=wibble; qux=a1',
@@ -26,13 +31,13 @@ my @test_cookie = (
 
 # Breaks encapsulation to easily adapt to CGI.pm's cookie.t
 my $get_cookie = sub {
-    my $q = CGI::PSGI->new(shift);
+    my $q = CGI::PSGI::Minimum->new(shift);
     $q->cookie;
     %{ $q->{'.cookies'} || {} };
 };
 
 my $get_raw_cookie = sub {
-    my $q = CGI::PSGI->new(shift);
+    my $q = CGI::PSGI::Minimum->new(shift);
     $q->raw_cookie('dummy');
     %{ $q->{'.raw_cookies'} || {} };
 };
@@ -60,8 +65,8 @@ my $get_raw_cookie = sub {
   %result = $get_cookie->($env);
   ok(keys %result == 0, "No cookies in environment, returns empty list");
 
-  # try another cookie in the other environment variable thats supposed to work
-  $env->{COOKIE} = $test_cookie[3];
+  # $ENV{COOKIE} support is dropped. Just test new value
+  $env->{HTTP_COOKIE} = $test_cookie[3];
   %result = $get_cookie->($env);
   ok(eq_set([keys %result], [qw(foo bar baz qux)]),
      "expected cookies extracted");
@@ -99,8 +104,8 @@ my $get_raw_cookie = sub {
   %result = $get_raw_cookie->($env);
   ok(keys %result == 0, "No cookies in environment, returns empty list");
 
-  # try another cookie in the other environment variable thats supposed to work
-  $env->{COOKIE} = $test_cookie[3];
+  # $ENV{COOKIE} support is dropped. Just test new value
+  $env->{HTTP_COOKIE} = $test_cookie[3];
   %result = $get_raw_cookie->($env);
   ok(eq_set([keys %result], [qw(foo bar baz qux)]),
      "expected cookies extracted");
@@ -111,3 +116,5 @@ my $get_raw_cookie = sub {
   is($result{baz}, '%5Ewibble', "cookie baz is correct");
   is($result{qux}, '%27', "cookie qux is correct");
 }
+
+done_testing;

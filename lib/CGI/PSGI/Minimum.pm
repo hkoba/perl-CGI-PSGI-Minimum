@@ -35,6 +35,9 @@ use CGI::PSGI::Minimum::IOHandle -as_base
 
        _status
        _response_headers
+
+       .cookies
+       .raw_cookies
      )
    ]
   ;
@@ -70,6 +73,20 @@ use MOP4Import::Types
       -status
       -type -Type
       -Location
+    )]
+  ],
+  Cookie_Opts => [
+    [fields => qw(
+      -name
+      -value
+      -path
+      -domain
+      -expires
+      -httponly
+      -samesite
+      -secure
+      -max-age
+      -priority
     )]
   ]
   ;
@@ -420,6 +437,66 @@ sub redirect {
   );
   "";
 }
+
+#========================================
+sub raw_cookie {
+  my MY $prop = (my $glob = shift)->prop;
+  if (defined $_[0]) {
+    # cache せず、生成し直す。
+
+    my $hash = $prop->{'.raw_cookies'} = do {
+      my $cookies = $glob->request->cookies;
+      my %hash;
+      foreach my $name (keys %$cookies) {
+        $hash{$name} = URI::Escape::uri_escape($cookies->{$name});
+      }
+      \%hash;
+    };
+
+    $hash->{$_[0]};
+  }
+  else {
+    my Env $env = $prop->{env};
+    $env->{HTTP_COOKIE};
+  }
+}
+
+sub cookie {
+  my MY $prop = (my $glob = shift)->prop;
+
+  require CGI::Cookie;
+
+  if (not @_) {
+    # cache せず、生成し直す。
+    my $hash = $prop->{'.cookies'} = do {
+      my $cookies = $glob->request->cookies;
+      my %hash;
+      foreach my $name (keys %$cookies) {
+        $hash{$name} = CGI::Cookie->new($name, $cookies->{$name});
+      }
+      \%hash;
+    };
+    return keys %$hash;
+  }
+
+  my Cookie_Opts $opts = do {
+    if (@_ == 1) {
+      +{-name => $_[0]}
+    }
+    elsif (@_ % 2 != 0) {
+      Carp::croak "Odd number of arguments! "
+        . MOP4Import::Util::terse_dump(\@_)
+    }
+    else {
+      $glob->lock_keys_as(Cookie_Opts, +{@_})
+    }
+  };
+
+  CGI::Cookie->new(map {
+    $opts->{$_} ? ($_ => $opts->{$_}) : ()
+  } keys %$opts)
+}
+
 
 #========================================
 {
