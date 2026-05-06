@@ -9,7 +9,6 @@ use FindBin;
 use lib File::Basename::dirname($FindBin::Bin) . "/lib";
 
 use Test::More;
-use CGI::Util qw(escape unescape);
 use POSIX qw(strftime);
 
 #-----------------------------------------------------------------------------
