@@ -7,7 +7,7 @@ requires 'Plack::Response';
 requires 'Tie::IxHash';
 requires 'URI::Escape';
 
-requires 'MOP4Import::Declare', '>= 0.072_001'; # For MOP4Import::Base::IOHandle
+requires 'MOP4Import::Declare'; # For MOP4Import::Base::IOHandle
 
 on 'test' => sub {
     requires 'Test::More', '0.98';
