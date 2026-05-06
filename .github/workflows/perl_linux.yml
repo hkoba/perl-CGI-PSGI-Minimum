@@ -11,14 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        threaded: [ true, false ]
         perl-version:
-          - '5.18'
-          - '5.20'
-          - '5.22'
-          - '5.24'
-          - '5.26'
-          - '5.28'
           - '5.30'
           - '5.32'
           - '5.34'
@@ -29,12 +22,11 @@ jobs:
           - 'latest'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Perl ${{ matrix.perl-version }}
         uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: ${{ matrix.perl-version }}
-          multi-thread: ${{ matrix.threaded }}
       - name: Install Dependencies
         run: cpm install -g --show-build-log-on-failure --with-recommends --with-test
       - name: Install Test Dependencies
