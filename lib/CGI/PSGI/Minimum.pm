@@ -464,15 +464,13 @@ sub raw_cookie {
 sub cookie {
   my MY $prop = (my $glob = shift)->prop;
 
-  require CGI::Cookie;
-
   if (not @_) {
     # cache せず、生成し直す。
     my $hash = $prop->{'.cookies'} = do {
       my $cookies = $glob->request->cookies;
       my %hash;
       foreach my $name (keys %$cookies) {
-        $hash{$name} = CGI::Cookie->new($name, $cookies->{$name});
+        $hash{$name} = $glob->make_cookie(name => $name, value => $cookies->{$name});
       }
       \%hash;
     };
@@ -492,9 +490,40 @@ sub cookie {
     }
   };
 
-  CGI::Cookie->new(map {
-    $opts->{$_} ? ($_ => $opts->{$_}) : ()
+  $glob->make_cookie(map {
+    $opts->{$_} ? (substr($_, 1) => $opts->{$_}) : ()
   } keys %$opts)
+}
+
+{
+  sub make_cookie {
+    my MY $prop = (my $glob = shift)->prop;
+    CGI::PSGI::Minimum::Cookie->new(@_);
+  }
+
+  package
+    CGI::PSGI::Minimum::Cookie;
+  use MOP4Import::Base::Configure -as_base
+    , [fields =>qw(
+      name
+      value
+      path
+      domain
+      expires
+      httponly
+      samesite
+      secure
+      max-age
+      priority
+    )]
+    ;
+
+  use overload qw("" as_string);
+
+  sub as_string {
+    (my MY $self) = @_;
+    Cookie::Baker::bake_cookie($self->{name}, $self);
+  }
 }
 
 

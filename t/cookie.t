@@ -53,7 +53,7 @@ my $get_raw_cookie = sub {
   ok(eq_set([keys %result], [qw(foo bar baz qux)]),
      "expected cookies extracted");
 
-  is(ref($result{foo}), 'CGI::Cookie', 'Type of objects returned is correct');
+  is(ref($result{foo}), 'CGI::PSGI::Minimum::Cookie', 'Type of objects returned is correct');
   is($result{foo}->value, 'vixen',      "cookie foo is correct");
   is($result{bar}->value, 'cow',        "cookie bar is correct");
   is($result{baz}->value, 'bitch',      "cookie baz is correct");
@@ -70,7 +70,7 @@ my $get_raw_cookie = sub {
   ok(eq_set([keys %result], [qw(foo bar baz qux)]),
      "expected cookies extracted");
 
-  is(ref($result{foo}), 'CGI::Cookie', 'Type of objects returned is correct');
+  is(ref($result{foo}), 'CGI::PSGI::Minimum::Cookie', 'Type of objects returned is correct');
   is($result{foo}->value, 'a phrase', "cookie foo is correct");
   is($result{bar}->value, 'yes, a phrase', "cookie bar is correct");
   is($result{baz}->value, '^wibble', "cookie baz is correct");
