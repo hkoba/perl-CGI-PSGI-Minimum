@@ -487,6 +487,24 @@ sub cookie {
     }
   };
 
+  # CGI.pm 互換: 値(-value)を伴わない呼び出し(cookie('name') /
+  # cookie(-name => 'name'))は getter。受信済み cookie を名前で引き、
+  # その値(文字列)を返す。従来は名前だけの空 Cookie を生成していたが、
+  # それは CGI.pm 非互換で実用上意味が無かった。
+  unless (defined $opts->{-value}) {
+    my $name = $opts->{-name};
+    return unless defined $name;
+    my $cookies = $prop->{'.cookies'} // do {
+      my $c = $glob->request->cookies;
+      +{ map {
+        $_ => $glob->make_cookie(name => $_, value => $c->{$_})
+      } keys %$c };
+    };
+    my $found = $cookies->{$name};
+    return unless defined $found;
+    return ref $found ? $found->value : $found;
+  }
+
   $glob->make_cookie(map {
     $opts->{$_} ? (substr($_, 1) => $opts->{$_}) : ()
   } keys %$opts)
