@@ -136,16 +136,10 @@ sub parameters {
       $env->{CONTENT_TYPE} = 'application/x-www-form-urlencoded';
     }
 
-    tie my %params, 'Tie::IxHash', %{$glob->query_parameters};
-
-    my $request = $glob->request;
-    my @kvlist = (
-      @{$request->_body_parameters}
+    $glob->_fill_ixhash(
+      $glob->_build_ixhash(%{$glob->query_parameters}),
+      @{$glob->request->_body_parameters},
     );
-    while (my ($k, $v) = splice @kvlist, 0, 2) {
-      push @{$params{$k}}, $v;
-    }
-    \%params;
   }
 }
 
@@ -153,28 +147,44 @@ sub query_parameters {
   my MY $prop = (my $glob = shift)->prop;
 
   $prop->{_query_parameters} //= do {
-    tie my %params, 'Tie::IxHash';
 
     my Env $env = $prop->{env};
 
     if ($env->{QUERY_STRING} =~ /[&=;]/) {
-      my $request = $glob->request;
-      my @kvlist = (
-        @{$request->_query_parameters},
+
+      $glob->_fill_ixhash(
+        $glob->_build_ixhash,
+        @{$glob->request->_query_parameters}
       );
-      while (my ($k, $v) = splice @kvlist, 0, 2) {
-        push @{$params{$k}}, $v;
-      }
+
     }
     elsif ($env->{QUERY_STRING} ne '') {
       my $tosplit = URI::Escape::uri_unescape($env->{QUERY_STRING});
       $tosplit =~ tr/+/ /;
       my @keywords = split /\s+/, $tosplit;
-      $params{keywords} = \@keywords;
-    }
 
-    \%params;
+      $glob->_build_ixhash(keywords => \@keywords);
+
+    }
+    else {
+      $glob->_build_ixhash;
+    }
   }
+}
+
+# Build IxHash as-is. (Value part should be an ARRAY).
+sub _build_ixhash {
+  my $pack = shift;
+  tie my %params, 'Tie::IxHash', @_; # XXX: [undef] can be assigned.
+  \%params;
+}
+
+sub _fill_ixhash {
+  my ($self, $ixhash, @kvlist) = @_;
+  while (my ($k, $v) = splice @kvlist, 0, 2) {
+    push @{$ixhash->{$k}}, $v if defined $v;
+  }
+  $ixhash;
 }
 
 #========================================
