@@ -545,19 +545,37 @@ sub cookie {
 #========================================
 {
   for my $method (qw(
-    request_method
-    script_name
+    auth_type
+
+    content_type
+
     path_info
+    path_translated
+
+    request_method
     request_uri
+
+    remote_addr
+    remote_host
+    remote_ident
+    remote_user
+
+    script_name
+
     server_name
     server_port
     server_protocol
-    content_type
+    server_software
   )) {
     my $key = uc($method);
     my $sym = MOP4Import::Util::globref(MY, $method);
     *$sym = sub {
-      shift->prop->{env}->{$key}
+      my MY $prop = (my $glob = shift)->prop;
+      if (@_) {
+        $prop->{env}->{$key} = $_[0];
+      } else {
+        $prop->{env}->{$key}
+      }
     }
   }
 
