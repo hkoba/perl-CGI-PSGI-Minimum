@@ -22,6 +22,14 @@ use Tie::IxHash;
 
 our $USE_PARAM_SEMICOLONS = 1;
 
+use MOP4Import::Opts;
+
+our $ALSO_SETENV = 0;
+sub declare_also_setenv {
+  (my $myPack, my Opts $opts, my ($bool)) = m4i_args(@_);
+  $ALSO_SETENV = $bool // 1;
+}
+
 #========================================
 
 use MOP4Import::Base::IOHandle -as_base
@@ -582,6 +590,7 @@ sub cookie {
     *$sym = sub {
       my MY $prop = (my $glob = shift)->prop;
       if (@_) {
+        $ENV{$key} = $_[0] if $ALSO_SETENV;
         $prop->{env}->{$key} = $_[0];
       } else {
         $prop->{env}->{$key}
