@@ -2,5 +2,7 @@ Revision history for Perl extension CGI-PSGI-Minimum
 
 {{$NEXT}}
 
+    - Add $PARAM_UTF8 / declare_param_utf8, equivalent of CGI.pm's -utf8 (param() decoding)
+
     - original version
 

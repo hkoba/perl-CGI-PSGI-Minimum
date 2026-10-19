@@ -11,6 +11,7 @@ use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 
 use URI::Escape ();
 use URI;
+use Encode ();
 use Plack::Request ();
 use Plack::Response ();
 
@@ -28,6 +29,16 @@ our $ALSO_SETENV = 0;
 sub declare_also_setenv {
   (my $myPack, my Opts $opts, my ($bool)) = m4i_args(@_);
   $ALSO_SETENV = $bool // 1;
+}
+
+# Equivalent of CGI.pm's `use CGI -utf8`. When true, values retrieved by
+# param() are decoded from UTF-8, following the same rules as CGI.pm:
+# only values are decoded (not names); references (uploads), utf8-flagged
+# values and PUTDATA/POSTDATA/PATCHDATA are returned as is.
+our $PARAM_UTF8 = 0;
+sub declare_param_utf8 {
+  (my $myPack, my Opts $opts, my ($bool)) = m4i_args(@_);
+  $PARAM_UTF8 = $bool // 1;
 }
 
 #========================================
@@ -206,11 +217,25 @@ sub query_string {
 
   join $sep, map {
     my $key = $_;
-    my $ekey = URI::Escape::uri_escape($key);
+    my $ekey = _escape($key);
     map {
-      join "=", $ekey, URI::Escape::uri_escape($_);
+      join "=", $ekey, _escape($_);
     } @{$parameters->{$key}}
   } keys %$parameters
+}
+
+# Equivalent of CGI.pm's _decode_utf8
+sub _decode_utf8 {
+  my ($val) = @_;
+  return $val if ref $val or not defined $val or Encode::is_utf8($val);
+  Encode::decode(utf8 => $val);
+}
+
+# Equivalent of CGI::escape: encode utf8-flagged strings to UTF-8 before escaping
+sub _escape {
+  my ($str) = @_;
+  utf8::encode($str) if utf8::is_utf8($str);
+  URI::Escape::uri_escape($str);
 }
 
 sub url_param {
@@ -240,11 +265,14 @@ sub param {
   }
   elsif (@_ == 1) {
     # get
-    my $vals = $parameters->{$_[0]};
+    my @vals = @{$parameters->{$_[0]} // []};
+    if ($PARAM_UTF8 and $_[0] !~ /^(?:PUTDATA|POSTDATA|PATCHDATA)\z/) {
+      @vals = map {_decode_utf8($_)} @vals;
+    }
     if (wantarray) {
-      $vals ? @$vals : ();
+      @vals;
     } else {
-      $vals->[0];
+      $vals[0];
     }
   }
   else {
