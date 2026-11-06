@@ -11,6 +11,7 @@ use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 
 use URI::Escape ();
 use URI;
+use Encode ();
 use Plack::Request ();
 use Plack::Response ();
 
@@ -22,13 +23,31 @@ use Tie::IxHash;
 
 our $USE_PARAM_SEMICOLONS = 1;
 
+use MOP4Import::Opts;
+
+our $ALSO_SETENV = 0;
+sub declare_also_setenv {
+  (my $myPack, my Opts $opts, my ($bool)) = m4i_args(@_);
+  $ALSO_SETENV = $bool // 1;
+}
+
+# Equivalent of CGI.pm's `use CGI -utf8`. When true, values retrieved by
+# param() are decoded from UTF-8, following the same rules as CGI.pm:
+# only values are decoded (not names); references (uploads), utf8-flagged
+# values and PUTDATA/POSTDATA/PATCHDATA are returned as is.
+our $PARAM_UTF8 = 0;
+sub declare_param_utf8 {
+  (my $myPack, my Opts $opts, my ($bool)) = m4i_args(@_);
+  $PARAM_UTF8 = $bool // 1;
+}
+
 #========================================
 
-use CGI::PSGI::Minimum::IOHandle -as_base
+use MOP4Import::Base::IOHandle -as_base
   , [fields =>
+     [charset => default => "ISO-8859-1", no_getter => 1],
      qw(
        env
-       charset
        _request
        _parameters
        _query_parameters
@@ -41,14 +60,6 @@ use CGI::PSGI::Minimum::IOHandle -as_base
      )
    ]
   ;
-
-#----------------------------------------
-use overload qw(
-  %{}  prop
-  bool as_bool
-);
-sub as_bool { 1 }
-#----------------------------------------
 
 use MOP4Import::Util qw(
   lock_keys_as
@@ -107,10 +118,7 @@ sub _reset_globals {
 
 sub new {
   my ($class, $env) = @_;
-  my $glob = $class->from(env => $env);
-  my MY $prop = $glob->prop;
-  $prop->{charset} = 'ISO-8859-1';
-  $glob;
+  $class->SUPER::new(env => $env);
 }
 
 sub request {
@@ -132,7 +140,7 @@ sub psgi_tuple {
   my MY $prop = (my $glob = shift)->prop;
   [$prop->{_status}
    , $prop->{_response_headers} // []
-   , [$glob->buffer]];
+   , [$glob->as_bytes]];
 }
 
 #========================================
@@ -147,16 +155,10 @@ sub parameters {
       $env->{CONTENT_TYPE} = 'application/x-www-form-urlencoded';
     }
 
-    tie my %params, 'Tie::IxHash', %{$glob->query_parameters};
-
-    my $request = $glob->request;
-    my @kvlist = (
-      @{$request->_body_parameters}
+    $glob->_fill_ixhash(
+      $glob->_build_ixhash(%{$glob->query_parameters}),
+      @{$glob->request->_body_parameters},
     );
-    while (my ($k, $v) = splice @kvlist, 0, 2) {
-      push @{$params{$k}}, $v;
-    }
-    \%params;
   }
 }
 
@@ -164,28 +166,44 @@ sub query_parameters {
   my MY $prop = (my $glob = shift)->prop;
 
   $prop->{_query_parameters} //= do {
-    tie my %params, 'Tie::IxHash';
 
     my Env $env = $prop->{env};
 
     if ($env->{QUERY_STRING} =~ /[&=;]/) {
-      my $request = $glob->request;
-      my @kvlist = (
-        @{$request->_query_parameters},
+
+      $glob->_fill_ixhash(
+        $glob->_build_ixhash,
+        @{$glob->request->_query_parameters}
       );
-      while (my ($k, $v) = splice @kvlist, 0, 2) {
-        push @{$params{$k}}, $v;
-      }
+
     }
     elsif ($env->{QUERY_STRING} ne '') {
       my $tosplit = URI::Escape::uri_unescape($env->{QUERY_STRING});
       $tosplit =~ tr/+/ /;
       my @keywords = split /\s+/, $tosplit;
-      $params{keywords} = \@keywords;
-    }
 
-    \%params;
+      $glob->_build_ixhash(keywords => \@keywords);
+
+    }
+    else {
+      $glob->_build_ixhash;
+    }
   }
+}
+
+# Build IxHash as-is. (Value part should be an ARRAY).
+sub _build_ixhash {
+  my $pack = shift;
+  tie my %params, 'Tie::IxHash', @_; # XXX: [undef] can be assigned.
+  \%params;
+}
+
+sub _fill_ixhash {
+  my ($self, $ixhash, @kvlist) = @_;
+  while (my ($k, $v) = splice @kvlist, 0, 2) {
+    push @{$ixhash->{$k}}, $v if defined $v;
+  }
+  $ixhash;
 }
 
 #========================================
@@ -199,11 +217,25 @@ sub query_string {
 
   join $sep, map {
     my $key = $_;
-    my $ekey = URI::Escape::uri_escape($key);
+    my $ekey = _escape($key);
     map {
-      join "=", $ekey, URI::Escape::uri_escape($_);
+      join "=", $ekey, _escape($_);
     } @{$parameters->{$key}}
   } keys %$parameters
+}
+
+# Equivalent of CGI.pm's _decode_utf8
+sub _decode_utf8 {
+  my ($val) = @_;
+  return $val if ref $val or not defined $val or Encode::is_utf8($val);
+  Encode::decode(utf8 => $val);
+}
+
+# Equivalent of CGI::escape: encode utf8-flagged strings to UTF-8 before escaping
+sub _escape {
+  my ($str) = @_;
+  utf8::encode($str) if utf8::is_utf8($str);
+  URI::Escape::uri_escape($str);
 }
 
 sub url_param {
@@ -233,11 +265,14 @@ sub param {
   }
   elsif (@_ == 1) {
     # get
-    my $vals = $parameters->{$_[0]};
+    my @vals = @{$parameters->{$_[0]} // []};
+    if ($PARAM_UTF8 and $_[0] !~ /^(?:PUTDATA|POSTDATA|PATCHDATA)\z/) {
+      @vals = map {_decode_utf8($_)} @vals;
+    }
     if (wantarray) {
-      $vals ? @$vals : ();
+      @vals;
     } else {
-      $vals->[0];
+      $vals[0];
     }
   }
   else {
@@ -498,6 +533,24 @@ sub cookie {
     }
   };
 
+  # CGI.pm 互換: 値(-value)を伴わない呼び出し(cookie('name') /
+  # cookie(-name => 'name'))は getter。受信済み cookie を名前で引き、
+  # その値(文字列)を返す。従来は名前だけの空 Cookie を生成していたが、
+  # それは CGI.pm 非互換で実用上意味が無かった。
+  unless (defined $opts->{-value}) {
+    my $name = $opts->{-name};
+    return unless defined $name;
+    my $cookies = $prop->{'.cookies'} // do {
+      my $c = $glob->request->cookies;
+      +{ map {
+        $_ => $glob->make_cookie(name => $_, value => $c->{$_})
+      } keys %$c };
+    };
+    my $found = $cookies->{$name};
+    return unless defined $found;
+    return ref $found ? $found->value : $found;
+  }
+
   $glob->make_cookie(map {
     $opts->{$_} ? (substr($_, 1) => $opts->{$_}) : ()
   } keys %$opts)
@@ -538,19 +591,38 @@ sub cookie {
 #========================================
 {
   for my $method (qw(
-    request_method
-    script_name
+    auth_type
+
+    content_type
+
     path_info
+    path_translated
+
+    request_method
     request_uri
+
+    remote_addr
+    remote_host
+    remote_ident
+    remote_user
+
+    script_name
+
     server_name
     server_port
     server_protocol
-    content_type
+    server_software
   )) {
     my $key = uc($method);
     my $sym = MOP4Import::Util::globref(MY, $method);
     *$sym = sub {
-      shift->prop->{env}->{$key}
+      my MY $prop = (my $glob = shift)->prop;
+      if (@_) {
+        $ENV{$key} = $_[0] if $ALSO_SETENV;
+        $prop->{env}->{$key} = $_[0];
+      } else {
+        $prop->{env}->{$key}
+      }
     }
   }
 

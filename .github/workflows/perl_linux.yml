@@ -27,7 +27,9 @@ jobs:
         uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: ${{ matrix.perl-version }}
-      - name: Install Dependencies
+      - name: Install M4I dev
+        run: cpm install -g MOP4Import::Declare@dev
+      - name: Install Other Dependencies
         run: cpm install -g --show-build-log-on-failure --with-recommends --with-test
       - name: Install Test Dependencies
         run: cpm install -g --show-build-log-on-failure --with-recommends --with-test App::Yath UUID

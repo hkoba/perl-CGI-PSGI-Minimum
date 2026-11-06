@@ -116,4 +116,32 @@ my $get_raw_cookie = sub {
   is($result{qux}, '%27', "cookie qux is correct");
 }
 
+#-----------------------------------------------------------------------------
+# Test single-name getter (CGI.pm compatible): cookie('name') / cookie(-name=>)
+# should return the received cookie's *value*, not an empty new cookie object.
+#-----------------------------------------------------------------------------
+
+{
+  my $q = CGI::PSGI::Minimum->new({HTTP_COOKIE => $test_cookie[2]});
+
+  is($q->cookie('foo'), 'vixen',      "cookie('foo') returns value");
+  is($q->cookie('qux'), 'politician', "cookie('qux') returns value");
+  is($q->cookie(-name => 'bar'), 'cow', "cookie(-name => 'bar') returns value");
+
+  is($q->cookie('nonexistent'), undef, "cookie('nonexistent') returns undef");
+
+  # No cookie header at all.
+  my $q0 = CGI::PSGI::Minimum->new({});
+  is($q0->cookie('foo'), undef, "cookie('foo') with no cookie header is undef");
+
+  # Setter form (with -value) still returns a Cookie object, and a value
+  # manually injected into .cookies is visible through the getter (this is
+  # how the SNR1 engine injects test cookies).
+  my $made = $q0->cookie(-name => 'GCP_IAP_UID', -value => '222222222222222222222');
+  is(ref($made), 'CGI::PSGI::Minimum::Cookie', "setter still returns a Cookie");
+  $q0->{'.cookies'}{'GCP_IAP_UID'} = $made;
+  is($q0->cookie('GCP_IAP_UID'), '222222222222222222222',
+     "getter reads value from injected .cookies");
+}
+
 done_testing;
