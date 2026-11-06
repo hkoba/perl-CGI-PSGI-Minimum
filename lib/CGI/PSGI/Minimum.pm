@@ -277,7 +277,7 @@ sub param {
   }
   else {
     # set
-    $parameters->{$_[0]} = [@_[1..$#_]];
+    $parameters->{$_[0]} = [grep {defined} @_[1..$#_]];
   }
 }
 
