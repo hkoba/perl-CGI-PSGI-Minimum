@@ -276,8 +276,10 @@ sub param {
     }
   }
   else {
-    # set
-    $parameters->{$_[0]} = [grep {defined} @_[1..$#_]];
+    # set. Like CGI.pm, undef values are ignored, and when no defined
+    # value is given, the parameter is left untouched.
+    my @values = grep {defined} @_[1..$#_];
+    $parameters->{$_[0]} = \@values if @values;
   }
 }
 
