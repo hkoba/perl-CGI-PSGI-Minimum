@@ -3,7 +3,7 @@ use 5.010;
 use strict;
 use warnings;
 
-our $VERSION = "0.02";
+our $VERSION = "0.03";
 
 use constant WARN_CGI_GLOBAL_CALLS => $ENV{WARN_CGI_GLOBAL_CALLS};
 
@@ -829,6 +829,29 @@ sub as_cgi_response {
 }
 
 #========================================
+# Discard the response (headers and body) built so far, e.g. to emit an
+# error response instead. Request side state and response settings
+# (env, parameters, cookies, charset, encoding, _cache) are kept.
+
+sub reset_response {
+  my MY $prop = (my $glob = shift)->prop;
+
+  # Body. Keep the filehandle (and layers added by binmode) as is:
+  # flush pending output, rewind the position (otherwise the next print
+  # would be written at the old position, leaving NULs before it), then
+  # empty the scalar the filehandle is opened on (don't replace the ref).
+  $glob->flush;
+  seek $glob, 0, 0;
+  ${$prop->{_buffer}} = "" if ref $prop->{_buffer};
+
+  # Headers.
+  $prop->{$_} = undef
+    for qw(_status _status_text _response_headers _header_called);
+
+  $glob;
+}
+
+#========================================
 sub raw_cookie {
   my MY $prop = (my $glob = shift)->prop;
   if (defined $_[0]) {
@@ -1125,6 +1148,42 @@ finished, and for tests.
 =head3 as_cgi_response
 
 C<as_cgi_header() . as_bytes()>.
+
+=head3 reset_response
+
+    print $cgi $cgi->header, "partial output...";
+    # an error occurred
+    $cgi->reset_response;
+    print $cgi $cgi->header(-status => 500), "error page";
+
+Discards the response built so far, so that an error response can be
+emitted instead of the partial one. After this, the object is in the same
+state as a newly created one on which C<header()> has not been called yet.
+Returns the object itself.
+
+It clears:
+
+=over 4
+
+=item * the headers: C<_status>, C<_status_text>, C<_response_headers> and
+C<_header_called>. C<has_header> becomes false, C<as_cgi_header> returns
+C<"">, and C<psgi_tuple> / C<response> return the same as a new object.
+
+=item * the body printed to the object. The filehandle is not reopened:
+it is flushed, rewound to the beginning, and the buffer is emptied. So
+layers added by C<binmode> (ex. C<:encoding(utf8)>) are kept.
+
+=back
+
+It does B<not> clear the request side state (C<env>, parameters, the
+request object, cookies) nor the response settings (C<charset>,
+C<encoding>, C<cache>). C<cache> is kept because it is a setting rather
+than a part of the response: like CGI.pm, once set to true it can not be
+reset (only a true value is stored), so clearing it here would silently
+change that rule.
+
+It is safe to call on an object without header or body, and any number of
+times.
 
 =head2 HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)
 
