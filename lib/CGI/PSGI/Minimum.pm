@@ -999,9 +999,166 @@ CGI::PSGI::Minimum - It's new $module
 
     use CGI::PSGI::Minimum;
 
+    # PSGI application
+    my $app = sub {
+      my $env = shift;
+      my $cgi = CGI::PSGI::Minimum->new($env);
+
+      # CGI.pm style code works as is. header() returns "" and stores
+      # the response status and headers into $cgi.
+      print $cgi $cgi->header(-type => 'text/plain', -charset => 'utf-8');
+      print $cgi "Hello ", $cgi->param('name'), "\n";
+
+      $cgi->psgi_tuple;   # [$status, \@headers, [$body]]
+    };
+
+    # redirect() is also CGI.pm compatible.
+    $cgi->redirect(-location => 'thanks.html', -cookie => $cookie);
+
+    # CGI/FastCGI driver: emit CGI style headers after the app finished.
+    print $cgi->as_cgi_header;     # "Status: 302 Found\r\nSet-Cookie: ...\r\n\r\n"
+    print $cgi->as_cgi_response;   # as_cgi_header . as_bytes
+
 =head1 DESCRIPTION
 
-CGI::PSGI::Minimum is ...
+CGI::PSGI::Minimum is a minimum subset of L<CGI> on top of PSGI, to run
+code written for CGI.pm (C<print $cgi-E<gt>header(...)>) on PSGI with
+little modification.
+
+=head2 RESPONSE HEADERS
+
+=head3 header
+
+    $cgi->header;                                   # text/html; charset=ISO-8859-1
+    $cgi->header('text/plain');                     # single argument is -type
+    $cgi->header(-status => '400', -type => 'text/plain');
+    $cgi->header(-type => 'application/pdf', '-Content-Length' => $size);
+    $cgi->header(-cookie => [$cookie1, $cookie2], -expires => '+1h');
+
+Unlike CGI.pm, C<header()> does B<not> return the header string. It stores
+the response into the object and returns C<"">, so that
+C<print $cgi-E<gt>header(...)> works as is. The status code is stored in
+C<_status> (default 200), the headers in C<_response_headers> (a flat
+arrayref of name/value pairs), and the status string as given (ex.
+C<"302 Found">) in C<_status_text>. When called multiple times, the last
+call wins.
+
+Arguments are interpreted like CGI.pm's C<header()>. Keys are normalized
+(the leading C<-> is removed, lowercased, C<_> becomes C<->), so
+C<-Type>, C<-type>, C<-content_type> and C<-Content-Type> are the same.
+Known keys are C<type> (C<content-type>), C<status>, C<cookie>
+(C<cookies>, C<set-cookie>), C<target> (C<window-target>), C<expires>,
+C<nph> (accepted and ignored), C<charset>, C<attachment> and C<p3p>
+(C<p3p-policy>). A single hash ref is also accepted.
+
+Other C<-name =E<gt> value> pairs become arbitrary headers, named like
+CGI.pm: C<-X_Error_Reason> becomes C<X-error-reason>. Keys without the
+leading C<-> are used as header names as is.
+
+The headers are stored in the same order as CGI.pm outputs them:
+C<Window-Target>, C<P3P>, C<Set-Cookie> (one per cookie), C<Expires>,
+C<Date> (when expires or cookie is given), C<Pragma>,
+C<Content-Disposition>, arbitrary headers (in the argument order) and
+C<Content-Type> (omitted when C<-type =E<gt> ''>).
+
+C<charset> (default C<ISO-8859-1>) is appended to C<text/*> types only,
+unless C<-charset> is given explicitly or the type already has a charset.
+
+C<-expires> accepts the same forms as CGI.pm: C<now>, C<+30s>, C<+10m>,
+C<+2h>, C<-1d>, C<+3M>, C<+10y>, epoch seconds, or a preformatted date
+string. The current time is taken from C<_now()>, which can be overridden.
+
+=head3 psgi_header
+
+    my ($status, $headers) = $cgi->psgi_header(...);
+
+Same as C<header()>, but returns the stored status code and headers.
+
+=head3 redirect
+
+    $cgi->redirect('http://example.com/');
+    $cgi->redirect(-location => $url, -status => 301, -cookie => \@cookies,
+                   'X-Foo' => 1);
+
+Interprets arguments like CGI.pm's C<redirect()>: C<location> (C<uri>,
+C<url>; defaults to C<self_url>), C<status> (default C<"302 Found">),
+C<target>, C<cookie> and C<nph>. Other arguments are passed to
+C<header()>. C<Content-Type> is not emitted unless C<-type> is given.
+Returns C<"">.
+
+=head3 psgi_redirect
+
+Same as C<redirect()>, but returns C<($status, $headers)>.
+
+=head3 cache
+
+    $cgi->cache(1);
+    $cgi->header;     # includes "Pragma: no-cache"
+
+CGI.pm compatible. B<Note that the meaning is inverted from what the name
+suggests:> C<cache(1)> (true) means "do NOT cache": C<header()> emits
+C<Pragma: no-cache>. The name is misleading, but kept as is for CGI.pm
+compatibility. By default (not set) no C<Pragma> header is emitted.
+Like CGI.pm, only a true value is stored (C<cache(0)> does not reset it)
+and the current value is always returned.
+
+=head3 has_header
+
+True if C<header()> or C<redirect()> has been called.
+
+=head3 as_cgi_header
+
+Serializes the stored response into a CGI style header string, the same
+form as CGI.pm's C<header()> returns:
+
+    Status: 302 Found\r\n
+    Set-Cookie: U=1000; path=/\r\n
+    Date: Tue, 14 Nov 2023 22:13:20 GMT\r\n
+    Location: thanks.html\r\n
+    \r\n
+
+C<Status> is emitted only when the status was specified explicitly (same
+as CGI.pm). Returns C<""> if C<header()>/C<redirect()> has not been called.
+Intended for CGI/FastCGI drivers which emit headers after the application
+finished, and for tests.
+
+=head3 as_cgi_response
+
+C<as_cgi_header() . as_bytes()>.
+
+=head2 HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)
+
+Header values often contain user input (redirect targets, cookie values
+...). A CR or LF in them would allow injecting arbitrary headers or body.
+This module guards against it at two stages:
+
+=over 4
+
+=item When storing (header, redirect, psgi_header, psgi_redirect)
+
+Like CGI.pm, "CRLF + whitespace" (folding) in values is unfolded into the
+whitespace, and any other CR or LF makes it croak with
+C<Invalid header value contains a newline not followed by whitespace>.
+NUL is rejected too, and header names must be RFC 9110 tokens. This
+applies to all values: type, status, cookies (after stringification),
+target, expires, charset, attachment, p3p, Location and arbitrary headers.
+Nothing is stored when it croaks.
+
+=item When serializing (as_cgi_header)
+
+Stored headers can be modified without going through C<header()> (through
+the arrayref returned by C<psgi_header()>, or directly through the
+object). So C<as_cgi_header()> validates everything again just before
+output: names must be RFC 9110 tokens, values must not contain CR, LF or
+NUL (folding is not allowed here at all), the status must look like
+C<302> or C<302 Found>, and the headers must be an arrayref with an even
+number of elements. Any violation makes it croak (fail closed); invalid
+characters are never silently removed.
+
+=back
+
+Error messages show control characters escaped (ex. C<\x0D>), to avoid
+log injection.
 
 =head1 LICENSE
 

@@ -2,6 +2,17 @@ Revision history for Perl extension CGI-PSGI-Minimum
 
 {{$NEXT}}
 
+    - header()/psgi_header() now interpret arguments like CGI.pm
+      (key normalization, aliases, arbitrary headers, -cookie, -target,
+      -expires, -attachment, -p3p, -nph). Previously these croaked.
+    - redirect()/psgi_redirect() now interpret arguments like CGI.pm
+      (-location/-uri/-url, -status (default "302 Found"), -target,
+      -cookie, -nph, and arbitrary headers).
+    - Add cache() (CGI.pm compatible; cache(1) means "do NOT cache").
+    - Add has_header(), as_cgi_header() and as_cgi_response() to serialize
+      the stored response in CGI style (for CGI/FastCGI drivers and tests).
+    - Guard against HTTP response splitting (CWE-113) when storing and
+      when serializing headers.
     - Add $PARAM_UTF8 / declare_param_utf8, equivalent of CGI.pm's -utf8 (param() decoding)
     - CGI.pm compatibility: param() setter ignores undef values and leaves the parameter untouched when no defined value is given
 
