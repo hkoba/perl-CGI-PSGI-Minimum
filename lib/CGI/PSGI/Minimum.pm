@@ -1016,37 +1016,372 @@ __END__
 
 =head1 NAME
 
-CGI::PSGI::Minimum - It's new $module
+CGI::PSGI::Minimum - Run CGI.pm style application code on PSGI, with a small CGI.pm compatible object
 
 =head1 SYNOPSIS
 
-    use CGI::PSGI::Minimum;
+    # app.psgi
+    use CGI::PSGI::Minimum [as => 'CGI'];   # CGI->new means CGI::PSGI::Minimum->new
+    use SelectSaver;
 
-    # PSGI application
     my $app = sub {
       my $env = shift;
-      my $cgi = CGI::PSGI::Minimum->new($env);
-
-      # CGI.pm style code works as is. header() returns "" and stores
-      # the response status and headers into $cgi.
-      print $cgi $cgi->header(-type => 'text/plain', -charset => 'utf-8');
-      print $cgi "Hello ", $cgi->param('name'), "\n";
-
+      my $cgi = CGI->new($env);
+      {
+        # Plain print goes to $cgi (the response body) while selected.
+        my $saver = SelectSaver->new($cgi);
+        MyApp->dispatch($cgi);
+      }
       $cgi->psgi_tuple;   # [$status, \@headers, [$body]]
     };
 
-    # redirect() is also CGI.pm compatible.
-    $cgi->redirect(-location => 'thanks.html', -cookie => $cookie);
+    # MyApp.pm -- application code written for CGI.pm keeps working
+    sub cmd_main {
+      my ($self, $cgi) = @_;
+      print $cgi->header(-type => 'text/html', -charset => 'utf-8');
+      print "<h1>Hello, ", escape($cgi->param('name')), "</h1>\n";
+    }
 
-    # CGI/FastCGI driver: emit CGI style headers after the app finished.
-    print $cgi->as_cgi_header;     # "Status: 302 Found\r\nSet-Cookie: ...\r\n\r\n"
-    print $cgi->as_cgi_response;   # as_cgi_header . as_bytes
+    sub cmd_update {
+      my ($self, $cgi) = @_;
+      ...
+      print $cgi->redirect('./');
+    }
+
+    # A CGI/FastCGI driver can emit the same response in CGI style
+    # after the application finished.
+    print STDOUT $cgi->as_cgi_response;   # "Status: ...\r\n...\r\n\r\n" . body
 
 =head1 DESCRIPTION
 
-CGI::PSGI::Minimum is a minimum subset of L<CGI> on top of PSGI, to run
-code written for CGI.pm (C<print $cgi-E<gt>header(...)>) on PSGI with
-little modification.
+CGI::PSGI::Minimum lets you run application code written against the
+object interface of L<CGI> (CGI.pm) on L<PSGI> servers, with as little
+modification of the application code as possible.
+
+It is B<not> a subclass of CGI.pm and does not load it. It is a small,
+independent reimplementation of the part of the CGI.pm API which real
+world CGI applications use (parameters, URLs, cookies, request
+information and response headers), built on L<Plack::Request>. The object
+is also a filehandle which collects the response body.
+
+=head2 The idea
+
+A typical CGI.pm application prints its response from anywhere in the
+code:
+
+    print $cgi->header;
+    print "<html>...";
+
+With CGI::PSGI::Minimum:
+
+=over 4
+
+=item * C<header()> and C<redirect()> do not return the header string.
+They store the status and headers into the object and return C<"">, so
+C<print $cgi-E<gt>header(...)> prints nothing and keeps working.
+
+=item * The object itself is a filehandle (L<MOP4Import::Base::IOHandle>)
+which collects the body. C<select> it (or C<print $cgi ...>) and plain
+C<print> goes into the response body. Nothing is written to STDOUT.
+
+=item * After the application finished, C<psgi_tuple()> returns the PSGI
+response C<[$status, \@headers, [$body]]>. For CGI/FastCGI, the same
+object can be serialized with C<as_cgi_header()> / C<as_cgi_response()>,
+so one code base can serve both PSGI and CGI.
+
+=back
+
+The modification needed in the application is usually limited to the
+place where the object is created (C<CGI-E<gt>new> becomes
+C<CGI::PSGI::Minimum-E<gt>new($env)>, or just C<CGI-E<gt>new($env)> with
+C<[as =E<gt> 'CGI']>) and passing that object around instead of using
+global state.
+
+=head1 GOALS, AND DIFFERENCES FROM CGI::PSGI
+
+L<CGI::PSGI> ("Adapt CGI.pm to the PSGI protocol") and this module both
+put a CGI.pm style object on top of a PSGI C<$env>, and share method
+names like C<psgi_header()> and C<psgi_redirect()>. But their goals are
+different.
+
+=head2 CGI::PSGI: let frameworks use CGI.pm under PSGI
+
+CGI::PSGI is meant for web B<framework developers> who use CGI.pm to
+handle query parameters and want their framework to speak PSGI. It
+assumes that the framework already collects the response body in one
+place, and asks that place to build the PSGI response by itself:
+
+    my $q = CGI::PSGI->new($env);
+    ...
+    return [ $q->psgi_header, [ $body ] ];
+
+=over 4
+
+=item * It B<is> CGI.pm: a subclass of CGI (C<use base qw(CGI)>). All of
+CGI.pm's features are available, and its behavior is CGI.pm's behavior.
+
+=item * To make CGI.pm (which reads C<%ENV> and STDIN) work with
+C<$env>, it localizes C<%ENV> to C<$env> in C<new> and in about 30 wrapped
+methods, reads the request body from C<psgi.input>, and resets CGI.pm's
+globals with C<CGI::initialize_globals()>.
+
+=item * Application code that does C<print $q-E<gt>header> has to be
+changed: C<header()> still returns a string as in CGI.pm, and nothing
+captures the output of C<print>. For end users who want to run plain CGI
+scripts, CGI::PSGI points to L<CGI::Emulate::PSGI> instead.
+
+=back
+
+=head2 CGI::PSGI::Minimum: keep CGI.pm style application code working
+
+This module is meant for B<application code> written against CGI.pm,
+where C<print $cgi-E<gt>header> and C<print "..."> are scattered all over
+the code, and which you want to run on PSGI (and possibly still on
+CGI/FastCGI) without rewriting it.
+
+=over 4
+
+=item * The response is collected by the object, not by the caller:
+C<header()> / C<redirect()> store into the object and return C<"">, and
+the body is printed into the object. The caller only returns
+C<$cgi-E<gt>psgi_tuple>.
+
+=item * It is B<not> CGI.pm. It implements only a subset of the API, and
+does not load CGI.pm at all. Where an argument is outside of the
+supported subset, it croaks rather than silently doing something
+different (ex. unknown options of C<url()>).
+
+=item * No global state: it does not touch C<%ENV>, STDIN or STDOUT, and
+has no per-process globals to reset (C<_reset_globals> is a no-op). All
+request information comes from C<$env> passed to C<new>. (Setting
+C<%ENV> from the accessors is possible with C<[also_setenv]>, for legacy
+code which reads C<%ENV> directly.)
+
+=item * Within the subset, CGI.pm compatibility of the B<behavior> is the
+goal, and is tested against CGI.pm itself where possible (ex. the header
+string from C<as_cgi_header()> is compared with CGI.pm's C<header()>).
+
+=item * The same object works for CGI/FastCGI drivers too, through
+C<as_cgi_header()>, C<as_cgi_response()> and C<reset_response()>.
+
+=back
+
+=head2 Which one to use
+
+=over 4
+
+=item * You write or maintain a framework which already builds the
+response body in one place, and want the full CGI.pm: use L<CGI::PSGI>.
+
+=item * You want to run an existing CGI script file as is, including its
+use of C<%ENV>, STDOUT and the function interface: use
+L<CGI::Emulate::PSGI> (with L<CGI::Compile>), which emulates the CGI
+environment for each request.
+
+=item * You have application code using the CGI.pm object interface,
+which prints from everywhere, and want it to run on PSGI without global
+state and without depending on CGI.pm: use this module.
+
+=back
+
+=head1 IMPORT OPTIONS
+
+Options are given as MOP4Import pragmas (array refs):
+
+    use CGI::PSGI::Minimum [as => 'CGI'], [param_utf8];
+
+=over 4
+
+=item C<[as =E<gt> 'NAME']>
+
+Defines a constant C<NAME> in the caller, which returns
+C<"CGI::PSGI::Minimum">. With C<[as =E<gt> 'CGI']>, C<CGI-E<gt>new($env)>
+creates a CGI::PSGI::Minimum object (CGI.pm is not loaded).
+
+=item C<[param_utf8]>
+
+Equivalent of CGI.pm's C<use CGI -utf8>: values retrieved by C<param()>
+are decoded from UTF-8. Only values are decoded (not names); references,
+already decoded values and C<PUTDATA>/C<POSTDATA>/C<PATCHDATA> are
+returned as is. This is a process wide setting (C<$CGI::PSGI::Minimum::PARAM_UTF8>).
+
+=item C<[also_setenv]>
+
+Makes the setter form of the request accessors (ex.
+C<$cgi-E<gt>request_method('POST')>) also set C<%ENV>. Off by default.
+This is a process wide setting (C<$CGI::PSGI::Minimum::ALSO_SETENV>).
+
+=back
+
+Other package variables and environment variables:
+
+=over 4
+
+=item C<$CGI::PSGI::Minimum::USE_PARAM_SEMICOLONS>
+
+When true (default, same as CGI.pm), C<query_string()> joins pairs with
+C<;>, otherwise with C<&>.
+
+=item C<WARN_CGI_GLOBAL_CALLS> (environment variable)
+
+When set at compile time, C<_reset_globals()> warns when called. Useful
+to find code which relies on CGI.pm's global state.
+
+=back
+
+=head1 METHODS
+
+=head2 CONSTRUCTOR AND PSGI
+
+=head3 new
+
+    my $cgi = CGI::PSGI::Minimum->new($env);
+
+Creates an object for the PSGI environment C<$env>. Unlike CGI.pm,
+C<$env> is required, and query strings or hashes of parameters are not
+accepted.
+
+=head3 env
+
+Returns the PSGI environment.
+
+=head3 request
+
+Returns the L<Plack::Request> for C<$env> (created once and cached). Use
+it for what this module does not provide, ex. file uploads:
+C<$cgi-E<gt>request-E<gt>uploads>.
+
+=head3 psgi_tuple
+
+    return $cgi->psgi_tuple;   # [$status, \@headers, [$body]]
+
+Returns the PSGI response built from the stored headers and the body
+printed into the object. Call C<header()> or C<redirect()> before this,
+otherwise the status is undef.
+
+=head3 response
+
+Returns a L<Plack::Response> with the stored status (default 200) and
+headers. The body is not set.
+
+=head3 as_bytes
+
+Returns the body printed into the object so far (flushes first).
+
+=head3 Printing the body
+
+The object is a filehandle. Either print to it explicitly, or C<select>
+it (ex. with L<SelectSaver>) so that plain C<print> goes into it:
+
+    print $cgi "text";
+    binmode $cgi, ':encoding(utf8)';   # layers can be added as usual
+
+=head2 PARAMETERS
+
+=head3 param
+
+    my @names = $cgi->param;            # names, in the original order
+    my $value = $cgi->param('name');    # first value
+    my @values = $cgi->param('name');   # all values
+    $cgi->param('name', @values);       # set
+
+Parameters from the query string and the request body
+(C<application/x-www-form-urlencoded> or C<multipart/form-data>, query
+string first) are merged. A POST request without C<Content-Type> is
+treated as urlencoded, as CGI.pm does. Like CGI.pm, the setter ignores
+undef values, and leaves the parameter untouched when no defined value is
+given. Only the positional form of the setter is supported (not
+C<-name =E<gt> ..., -value =E<gt> ...>). Uploaded files are not returned;
+use C<$cgi-E<gt>request-E<gt>uploads>.
+
+=head3 url_param
+
+    my @names = $cgi->url_param;
+    my $value = $cgi->url_param('name');
+
+Same as C<param()>, but only for the query string.
+
+=head3 delete
+
+    $cgi->delete('name');
+
+=head3 keywords
+
+Returns the keywords of an C<isindex> style query string (ex.
+C<?mary+had+a+little+lamb>).
+
+=head3 query_string
+
+Returns the parameters (including those set by C<param()>) as a query
+string. See C<$USE_PARAM_SEMICOLONS>.
+
+=head3 parameters, query_parameters
+
+Returns the underlying ordered hashes (L<Tie::IxHash>) of all parameters
+and of the query string parameters. The values are array refs.
+
+=head2 URL AND REQUEST INFORMATION
+
+=head3 url
+
+    $cgi->url;                         # http://host:port/cgi-bin/foo.cgi
+    $cgi->url(-absolute => 1);         # /cgi-bin/foo.cgi
+    $cgi->url(-relative => 1);         # foo.cgi
+    $cgi->url(-path => 1, -query => 1);
+
+Supported options are C<-full> (default), C<-absolute>, C<-relative>,
+C<-path> (or C<-path_info>) and C<-query>. Other options croak.
+
+=head3 self_url
+
+Same as C<url(-full =E<gt> 1, -path =E<gt> 1, -query =E<gt> 1)>.
+
+=head3 http
+
+    my $value = $cgi->http('accept_language');   # HTTP_ACCEPT_LANGUAGE
+    my @names = $cgi->http;                      # HTTP_* keys
+
+Note that unlike CGI.pm, C<-> in the name is not converted to C<_>, so
+write C<http('user_agent')>, not C<http('User-Agent')>.
+
+=head3 protocol, virtual_host, virtual_port
+
+Same as CGI.pm. C<virtual_host> and C<virtual_port> honor
+C<X-Forwarded-Host>.
+
+=head3 Request accessors
+
+C<auth_type>, C<content_type>, C<path_info>, C<path_translated>,
+C<request_method>, C<request_uri>, C<remote_addr>, C<remote_host>,
+C<remote_ident>, C<remote_user>, C<script_name>, C<server_name>,
+C<server_port>, C<server_protocol> and C<server_software> return the
+corresponding value of C<$env>. With an argument, they set it (and also
+C<%ENV> with C<[also_setenv]>).
+
+C<user_agent> and C<referer> return C<HTTP_USER_AGENT> and C<HTTP_REFERER>.
+
+=head2 COOKIES
+
+=head3 cookie
+
+    my @names = $cgi->cookie;                 # names of received cookies
+    my $value = $cgi->cookie('name');         # value of a received cookie
+    my $value = $cgi->cookie(-name => 'name');
+    my $cookie = $cgi->cookie(-name => 'U', -value => '1000', -path => '/',
+                              -expires => '+1d', -httponly => 1);
+    print $cgi->header(-cookie => $cookie);
+
+Like CGI.pm, without C<-value> it is a getter of received cookies, and
+with C<-value> it creates a cookie object
+(C<CGI::PSGI::Minimum::Cookie>, serialized by L<Cookie::Baker>), which
+can be passed to C<header(-cookie =E<gt> ...)>. Supported attributes are
+C<-name>, C<-value>, C<-path>, C<-domain>, C<-expires>, C<-max-age>,
+C<-secure>, C<-httponly>, C<-samesite> and C<-priority>.
+
+=head3 raw_cookie
+
+    my $header = $cgi->raw_cookie;          # HTTP_COOKIE as is
+    my $value  = $cgi->raw_cookie('name');  # URI escaped value
 
 =head2 RESPONSE HEADERS
 
@@ -1112,6 +1447,14 @@ Returns C<"">.
 =head3 psgi_redirect
 
 Same as C<redirect()>, but returns C<($status, $headers)>.
+
+=head3 charset
+
+    $cgi->charset('utf-8');
+    my $charset = $cgi->charset;
+
+Gets or sets the default charset used by C<header()> (default
+C<ISO-8859-1>, same as CGI.pm).
 
 =head3 cache
 
@@ -1185,7 +1528,7 @@ change that rule.
 It is safe to call on an object without header or body, and any number of
 times.
 
-=head2 HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)
+=head1 HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)
 
 Header values often contain user input (redirect targets, cookie values
 ...). A CR or LF in them would allow injecting arbitrary headers or body.
@@ -1218,6 +1561,57 @@ characters are never silently removed.
 
 Error messages show control characters escaped (ex. C<\x0D>), to avoid
 log injection.
+
+=head1 NOT SUPPORTED
+
+Being a minimum subset, the following parts of CGI.pm are not provided:
+
+=over 4
+
+=item * The function interface (C<use CGI qw(:standard)>, C<param()>
+without an object). Only the object interface is supported.
+
+=item * HTML generation (C<start_html>, C<textfield>, ...) and sticky
+forms.
+
+=item * File uploads through C<param()> / C<upload()>. Use
+C<$cgi-E<gt>request-E<gt>uploads> (L<Plack::Request::Upload>).
+
+=item * C<multi_param>, C<Vars>, C<append>, C<save>, C<restore_parameters>
+and other less common methods.
+
+=item * The named form of the C<param()> setter, CGI.pm's positional
+argument form of C<header()> / C<redirect()>, and NPH responses
+(C<-nph> is accepted and ignored).
+
+=item * Creating an object without C<$env> (from C<%ENV>, a query string
+or a hash of parameters).
+
+=back
+
+Known intentional differences within the supported subset:
+
+=over 4
+
+=item * C<header()> / C<redirect()> return C<""> instead of the header
+string. Use C<psgi_header()>, C<psgi_tuple()> or C<as_cgi_header()>.
+
+=item * The default charset is appended to C<text/*> types only (CGI.pm
+appends it to any type) unless C<-charset> is given.
+
+=item * Arbitrary headers keep the argument order (CGI.pm sorts them).
+
+=item * Header values are validated more strictly (NUL, header names,
+status format). See L</HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)>.
+
+=item * C<http()> does not convert C<-> in the name to C<_>.
+
+=back
+
+=head1 SEE ALSO
+
+L<CGI>, L<CGI::PSGI>, L<CGI::Emulate::PSGI>, L<CGI::Compile>,
+L<Plack::Request>, L<PSGI>, L<MOP4Import::Base::IOHandle>
 
 =head1 LICENSE
 
