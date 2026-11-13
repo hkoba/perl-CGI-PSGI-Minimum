@@ -16,10 +16,12 @@ BEGIN {
 
 use CGI::PSGI::Minimum ();
 
-# CGI::Cookie is used here because CGI.pm compares cookie values with `ne`,
-# which CGI::PSGI::Minimum::Cookie does not overload.
 require CGI::Cookie;
 my $cookie = CGI::Cookie->new(-name => 'U', -value => '1000', -path => '/');
+
+# CGI.pm compares cookie values with `ne`, so this needs overload fallback.
+my $my_cookie = CGI::PSGI::Minimum->new(+{})
+  ->cookie(-name => 'V', -value => '2', -path => '/');
 
 # NOTE: Cases below avoid known, intentional differences:
 #  - charset is appended only to text/* unless -charset is given
@@ -37,6 +39,8 @@ my @cases = (
   [header => -status => '302 Found', -cookie => 'U=1000; path=/'],
   [header => -cookie => ['a=1', '', undef, $cookie]],
   [header => -cookie => $cookie, -expires => '+2h'],
+  [header => -cookie => $my_cookie],
+  [header => -cookie => ['a=1', $my_cookie, $cookie]],
   [header => -attachment => 'a"b.txt', -type => 'text/plain'],
   [header => -p3p => [qw(CAO DSP)]],
   [header => -expires => 'now', -x_foo => 'bar'],

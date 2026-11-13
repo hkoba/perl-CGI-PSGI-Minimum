@@ -144,4 +144,15 @@ my $get_raw_cookie = sub {
      "getter reads value from injected .cookies");
 }
 
+#-----------------------------------------------------------------------------
+# Cookie object falls back to stringification for other operators
+#-----------------------------------------------------------------------------
+
+{
+  my $c = CGI::PSGI::Minimum->new({})->cookie(-name => 'U', -value => '1000', -path => '/');
+  ok($c eq 'U=1000; path=/', "eq works on Cookie object");
+  ok($c ne '', "ne works on Cookie object");
+  is(length($c), length('U=1000; path=/'), "length works on Cookie object");
+}
+
 done_testing;

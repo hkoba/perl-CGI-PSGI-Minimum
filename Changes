@@ -11,6 +11,8 @@ Revision history for Perl extension CGI-PSGI-Minimum
     - Add cache() (CGI.pm compatible; cache(1) means "do NOT cache").
     - Add has_header(), as_cgi_header() and as_cgi_response() to serialize
       the stored response in CGI style (for CGI/FastCGI drivers and tests).
+    - CGI::PSGI::Minimum::Cookie: add overload fallback, so that eq/ne etc.
+      work (CGI.pm's header() compares cookies with `ne`).
     - Guard against HTTP response splitting (CWE-113) when storing and
       when serializing headers.
     - Add $PARAM_UTF8 / declare_param_utf8, equivalent of CGI.pm's -utf8 (param() decoding)

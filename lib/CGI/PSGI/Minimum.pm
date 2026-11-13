@@ -926,7 +926,7 @@ sub cookie {
     )]
     ;
 
-  use overload qw("" as_string);
+  use overload '""' => 'as_string', fallback => 1;
 
   sub as_string {
     (my MY $self) = @_;
