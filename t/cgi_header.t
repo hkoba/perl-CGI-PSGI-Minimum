@@ -83,4 +83,12 @@ subtest "headers modified through psgi_header() return value" => sub {
     "Content-Type: text/plain; charset=ISO-8859-1\r\nX-Added: yes\r\n\r\n";
 };
 
+subtest "psgi_tuple without header() defaults to 200" => sub {
+  my $q = new_cgi();
+  print $q "body";
+  is $q->psgi_tuple, [200, [], ["body"]];
+  ok !$q->has_header, "has_header is still false";
+  is $q->as_cgi_header, "", "as_cgi_header is still empty";
+};
+
 done_testing;

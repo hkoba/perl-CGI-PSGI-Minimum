@@ -2,6 +2,10 @@ Revision history for Perl extension CGI-PSGI-Minimum
 
 {{$NEXT}}
 
+    - CGI.pm compatibility: http() treats "-" as "_" and accepts the "HTTP_"
+      prefix (http('User-Agent') works), and returns sorted keys.
+    - psgi_tuple() defaults the status to 200 when header() was not called.
+    - Fix "uninitialized" warning in param() when REQUEST_METHOD is missing.
     - Add reset_response() to discard the headers and the body built so far
       (ex. to emit an error response instead). Request side state, charset
       and cache() are kept.

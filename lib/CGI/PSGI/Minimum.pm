@@ -125,7 +125,7 @@ sub response {
 
 sub psgi_tuple {
   my MY $prop = (my $glob = shift)->prop;
-  [$prop->{_status}
+  [$prop->{_status} // 200
    , $prop->{_response_headers} // []
    , [$glob->as_bytes]];
 }
@@ -138,7 +138,7 @@ sub parameters {
   $prop->{_parameters} //= do {
     my Env $env = $prop->{env};
     if (not defined $env->{CONTENT_TYPE}
-        and $env->{REQUEST_METHOD} eq 'POST') {
+        and ($env->{REQUEST_METHOD} // '') eq 'POST') {
       $env->{CONTENT_TYPE} = 'application/x-www-form-urlencoded';
     }
 
@@ -331,13 +331,16 @@ sub url {
   URI->new($URL)->canonical->as_string;
 }
 
+# Same as CGI.pm: http('User-Agent'), http('user_agent') and
+# http('HTTP_USER_AGENT') all return HTTP_USER_AGENT.
 sub http {
   my MY $prop = (my $glob = shift)->prop;
-  if (defined $_[0]) {
-    my $key = "HTTP_".uc($_[0]);
+  if (defined(my $key = $_[0])) {
+    $key =~ tr/-a-z/_A-Z/;
+    $key = "HTTP_$key" unless $key =~ /^HTTP(?:_|$)/;
     $prop->{env}{$key};
   } else {
-    grep { /^HTTP (?:_ | $ )/x } keys %{$prop->{env}}
+    grep { /^HTTP (?:_ | $ )/x } sort keys %{$prop->{env}}
   }
 }
 
@@ -1256,8 +1259,8 @@ C<$cgi-E<gt>request-E<gt>uploads>.
     return $cgi->psgi_tuple;   # [$status, \@headers, [$body]]
 
 Returns the PSGI response built from the stored headers and the body
-printed into the object. Call C<header()> or C<redirect()> before this,
-otherwise the status is undef.
+printed into the object. If C<header()> / C<redirect()> has not been
+called, the status is 200 and the headers are empty.
 
 =head3 response
 
@@ -1338,11 +1341,12 @@ Same as C<url(-full =E<gt> 1, -path =E<gt> 1, -query =E<gt> 1)>.
 
 =head3 http
 
-    my $value = $cgi->http('accept_language');   # HTTP_ACCEPT_LANGUAGE
-    my @names = $cgi->http;                      # HTTP_* keys
+    my $value = $cgi->http('Accept-Language');   # HTTP_ACCEPT_LANGUAGE
+    my @names = $cgi->http;                      # HTTP_* keys (sorted)
 
-Note that unlike CGI.pm, C<-> in the name is not converted to C<_>, so
-write C<http('user_agent')>, not C<http('User-Agent')>.
+Same as CGI.pm: the name is case insensitive, C<-> is treated as C<_>,
+and the C<HTTP_> prefix is optional (C<http('User-Agent')>,
+C<http('user_agent')> and C<http('HTTP_USER_AGENT')> are the same).
 
 =head3 protocol, virtual_host, virtual_port
 
@@ -1603,8 +1607,6 @@ appends it to any type) unless C<-charset> is given.
 
 =item * Header values are validated more strictly (NUL, header names,
 status format). See L</HEADER INJECTION (HTTP RESPONSE SPLITTING, CWE-113)>.
-
-=item * C<http()> does not convert C<-> in the name to C<_>.
 
 =back
 
