@@ -1157,7 +1157,7 @@ different (ex. unknown options of C<url()>).
 =item * No global state: it does not touch C<%ENV>, STDIN or STDOUT, and
 has no per-process globals to reset (C<_reset_globals> is a no-op). All
 request information comes from C<$env> passed to C<new>. (Setting
-C<%ENV> from the accessors is possible with C<[also_setenv]>, for legacy
+C<%ENV> from the accessors is possible with C<-also_setenv>, for legacy
 code which reads C<%ENV> directly.)
 
 =item * Within the subset, CGI.pm compatibility of the B<behavior> is the
@@ -1189,9 +1189,16 @@ state and without depending on CGI.pm: use this module.
 
 =head1 IMPORT OPTIONS
 
-Options are given as MOP4Import pragmas (array refs):
+Options are given as L<MOP4Import::Declare> pragmas. A pragma without
+arguments can be written as C<-NAME> (recommended), and a pragma with
+arguments as an array ref C<[NAME =E<gt> ARGS...]>. In the array ref form,
+quote the pragma name unless it is followed by C<=E<gt>> (a bare
+C<[param_utf8]> is a compile error under C<use strict>):
 
-    use CGI::PSGI::Minimum [as => 'CGI'], [param_utf8];
+    use CGI::PSGI::Minimum [as => 'CGI'], -param_utf8;
+
+    # same as above
+    use CGI::PSGI::Minimum [as => 'CGI'], ['param_utf8'];
 
 =over 4
 
@@ -1201,18 +1208,20 @@ Defines a constant C<NAME> in the caller, which returns
 C<"CGI::PSGI::Minimum">. With C<[as =E<gt> 'CGI']>, C<CGI-E<gt>new($env)>
 creates a CGI::PSGI::Minimum object (CGI.pm is not loaded).
 
-=item C<[param_utf8]>
+=item C<-param_utf8>
 
 Equivalent of CGI.pm's C<use CGI -utf8>: values retrieved by C<param()>
 are decoded from UTF-8. Only values are decoded (not names); references,
 already decoded values and C<PUTDATA>/C<POSTDATA>/C<PATCHDATA> are
-returned as is. This is a process wide setting (C<$CGI::PSGI::Minimum::PARAM_UTF8>).
+returned as is. This is a process wide setting
+(C<$CGI::PSGI::Minimum::PARAM_UTF8>). C<['param_utf8', 0]> turns it off.
 
-=item C<[also_setenv]>
+=item C<-also_setenv>
 
 Makes the setter form of the request accessors (ex.
 C<$cgi-E<gt>request_method('POST')>) also set C<%ENV>. Off by default.
 This is a process wide setting (C<$CGI::PSGI::Minimum::ALSO_SETENV>).
+C<['also_setenv', 0]> turns it off.
 
 =back
 
@@ -1360,7 +1369,7 @@ C<request_method>, C<request_uri>, C<remote_addr>, C<remote_host>,
 C<remote_ident>, C<remote_user>, C<script_name>, C<server_name>,
 C<server_port>, C<server_protocol> and C<server_software> return the
 corresponding value of C<$env>. With an argument, they set it (and also
-C<%ENV> with C<[also_setenv]>).
+C<%ENV> with C<-also_setenv>).
 
 C<user_agent> and C<referer> return C<HTTP_USER_AGENT> and C<HTTP_REFERER>.
 

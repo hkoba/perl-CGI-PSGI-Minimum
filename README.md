@@ -123,7 +123,7 @@ different (ex. unknown options of `url()`).
 - No global state: it does not touch `%ENV`, STDIN or STDOUT, and
 has no per-process globals to reset (`_reset_globals` is a no-op). All
 request information comes from `$env` passed to `new`. (Setting
-`%ENV` from the accessors is possible with `[also_setenv]`, for legacy
+`%ENV` from the accessors is possible with `-also_setenv`, for legacy
 code which reads `%ENV` directly.)
 - Within the subset, CGI.pm compatibility of the **behavior** is the
 goal, and is tested against CGI.pm itself where possible (ex. the header
@@ -145,9 +145,16 @@ state and without depending on CGI.pm: use this module.
 
 # IMPORT OPTIONS
 
-Options are given as MOP4Import pragmas (array refs):
+Options are given as [MOP4Import::Declare](https://metacpan.org/pod/MOP4Import%3A%3ADeclare) pragmas. A pragma without
+arguments can be written as `-NAME` (recommended), and a pragma with
+arguments as an array ref `[NAME => ARGS...]`. In the array ref form,
+quote the pragma name unless it is followed by `=>` (a bare
+`[param_utf8]` is a compile error under `use strict`):
 
-    use CGI::PSGI::Minimum [as => 'CGI'], [param_utf8];
+    use CGI::PSGI::Minimum [as => 'CGI'], -param_utf8;
+
+    # same as above
+    use CGI::PSGI::Minimum [as => 'CGI'], ['param_utf8'];
 
 - `[as => 'NAME']`
 
@@ -155,18 +162,20 @@ Options are given as MOP4Import pragmas (array refs):
     `"CGI::PSGI::Minimum"`. With `[as => 'CGI']`, `CGI->new($env)`
     creates a CGI::PSGI::Minimum object (CGI.pm is not loaded).
 
-- `[param_utf8]`
+- `-param_utf8`
 
     Equivalent of CGI.pm's `use CGI -utf8`: values retrieved by `param()`
     are decoded from UTF-8. Only values are decoded (not names); references,
     already decoded values and `PUTDATA`/`POSTDATA`/`PATCHDATA` are
-    returned as is. This is a process wide setting (`$CGI::PSGI::Minimum::PARAM_UTF8`).
+    returned as is. This is a process wide setting
+    (`$CGI::PSGI::Minimum::PARAM_UTF8`). `['param_utf8', 0]` turns it off.
 
-- `[also_setenv]`
+- `-also_setenv`
 
     Makes the setter form of the request accessors (ex.
     `$cgi->request_method('POST')`) also set `%ENV`. Off by default.
     This is a process wide setting (`$CGI::PSGI::Minimum::ALSO_SETENV`).
+    `['also_setenv', 0]` turns it off.
 
 Other package variables and environment variables:
 
@@ -308,7 +317,7 @@ Same as CGI.pm. `virtual_host` and `virtual_port` honor
 `remote_ident`, `remote_user`, `script_name`, `server_name`,
 `server_port`, `server_protocol` and `server_software` return the
 corresponding value of `$env`. With an argument, they set it (and also
-`%ENV` with `[also_setenv]`).
+`%ENV` with `-also_setenv`).
 
 `user_agent` and `referer` return `HTTP_USER_AGENT` and `HTTP_REFERER`.
 
