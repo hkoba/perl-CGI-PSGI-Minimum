@@ -1,10 +1,10 @@
 {
-   "abstract" : "It's new $module",
+   "abstract" : "Run CGI.pm style application code on PSGI, with a small CGI.pm compatible object",
    "author" : [
       "Kobayasi, Hiroaki <buribullet@gmail.com>"
    ],
    "dynamic_config" : 0,
-   "generated_by" : "Minilla/v3.1.25, CPAN::Meta::Converter version 2.150010",
+   "generated_by" : "Minilla/v3.1.29, CPAN::Meta::Converter version 2.150013",
    "license" : [
       "perl_5"
    ],
@@ -42,17 +42,34 @@
       },
       "runtime" : {
          "requires" : {
-            "perl" : "5.008001"
+            "MOP4Import::Declare" : "0.073",
+            "Plack::Request" : "0",
+            "Plack::Response" : "0",
+            "Tie::IxHash" : "0",
+            "URI::Escape" : "0",
+            "perl" : "5.010"
          }
       },
       "test" : {
          "requires" : {
+            "Test2::V0" : "0",
             "Test::More" : "0.98"
          }
       }
    },
    "release_status" : "unstable",
-   "version" : "0.01",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/hkoba/perl-CGI-PSGI-Minimum/issues"
+      },
+      "homepage" : "https://github.com/hkoba/perl-CGI-PSGI-Minimum",
+      "repository" : {
+         "type" : "git",
+         "url" : "https://github.com/hkoba/perl-CGI-PSGI-Minimum.git",
+         "web" : "https://github.com/hkoba/perl-CGI-PSGI-Minimum"
+      }
+   },
+   "version" : "0.03",
    "x_serialization_backend" : "JSON::PP version 4.16",
    "x_static_install" : 1
 }
