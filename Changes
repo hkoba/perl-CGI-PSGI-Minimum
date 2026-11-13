@@ -2,6 +2,9 @@ Revision history for Perl extension CGI-PSGI-Minimum
 
 {{$NEXT}}
 
+    - Add reset_response() to discard the headers and the body built so far
+      (ex. to emit an error response instead). Request side state, charset
+      and cache() are kept.
     - header()/psgi_header() now interpret arguments like CGI.pm
       (key normalization, aliases, arbitrary headers, -cookie, -target,
       -expires, -attachment, -p3p, -nph). Previously these croaked.
